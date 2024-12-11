@@ -1,4 +1,5 @@
 import mongoose,{Schema} from 'mongoose'
+import mongooseAggregatePaginate from 'mongoose-aggregate-paginate-v2'
 
 const matchSchema = new Schema({
     location : {
@@ -35,4 +36,5 @@ const matchSchema = new Schema({
     timestamps : true
 })
 
+matchSchema.plugin(mongooseAggregatePaginate)
 export const Match = mongoose.model("Match",matchSchema);
