@@ -22,7 +22,6 @@ const userSchema = new Schema({
         unique : true,
         trim : true,
         lowercase : true,
-        typeof : email,
     },
     gender : {
         type : String,
@@ -57,8 +56,8 @@ const userSchema = new Schema({
 })
 
 // password encryption
-mongoose.pre("save",async function(next){
-    if(!this.modified("password")) return next();
+userSchema.pre("save",async function(next){
+    if(!this.isModified("password")) return next();
     bcrypt.hash(this.password , 10);
     next();
 })
