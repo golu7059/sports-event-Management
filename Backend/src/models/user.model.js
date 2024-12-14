@@ -58,13 +58,13 @@ const userSchema = new Schema({
 // password encryption
 userSchema.pre("save",async function(next){
     if(!this.isModified("password")) return next();
-    bcrypt.hash(this.password , 10);
+    this.password = await bcrypt.hash(this.password , 10);
     next();
 })
 
 // adding methods 
 userSchema.methods.isCorrectPassword = async function (enteredPassword){
-    return await bcrypt.compare(this.password,enteredPassword);
+    return await bcrypt.compare(enteredPassword,this.password);
 }
 
 userSchema.methods.generateAccessToken = function(){
@@ -77,15 +77,7 @@ userSchema.methods.generateAccessToken = function(){
 }
 
 userSchema.methods.generateRefreshToken = function(){
-    return jwt.sign(
-        {
-            _id : this._id
-        },
-        REFRESH_TOKEN_KEY ,
-        {
-            expiresIn : REFRESH_TOKEN_EXPIREIN
-        }
-    )
+    return jwt.sign({ _id : this._id},process.env.REFRESH_TOKEN_KEY ,{expiresIn : process.env.REFRESH_TOKEN_EXPIREIN})
 }
 
 export const User = mongoose.model("User",userSchema)
