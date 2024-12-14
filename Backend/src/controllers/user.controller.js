@@ -1,3 +1,4 @@
+import jwt from "jsonwebtoken";
 import { User } from "../models/user.model.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -12,8 +13,8 @@ const generateAccessTokenAndRefreshToken = async (userId) => {
     const user = await User.findById(userId);
     if (!user) throw new ApiError(404, "User not found");
 
-    const accessToken = await user.generateAccessToken();
-    const refreshToken = await user.generateRefreshToken();
+    const accessToken = user.generateAccessToken();
+    const refreshToken = user.generateRefreshToken();
 
     user.refreshToken = refreshToken;
     await user.save({ validateBeforeSave: false });
@@ -28,6 +29,51 @@ const generateAccessTokenAndRefreshToken = async (userId) => {
     );
   }
 };
+
+const refreshAccessToken = asyncHandler(async (req, res) => {
+  const { incomingRefreshToken } = req.body || req.cookies;
+
+  if (!incomingRefreshToken)
+    throw new ApiError(401, "Refresh token is required");
+
+  try {
+    const destructuedRefreshToken = jwt.verify(
+      incomingRefreshToken,
+      process.env.REFRESH_TOKEN_KEY
+    );
+    const user = await User.findById(destructuedRefreshToken._id);
+
+    if (!user) return new ApiError(401, "Invalid refresh Token !");
+
+    if (incomingRefreshToken !== user?.refreshToken)
+      return new ApiError(401, "Token doesn't match or Expired !");
+
+    const { accessToken, refreshToken: newRefreshToken } =
+    await generateAccessTokenAndRefreshToken(user._id);
+    
+    const options = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+    };
+
+    res.cookie("refreshToken", newRefreshToken, options); 
+    res.cookie("accessToken", accessToken, options);
+
+    return res
+      .send(201)
+      .json(
+        new ApiResponse(
+          200,
+          accessToken,
+          newRefreshToken,
+          "Access token refreshed successfully"
+        )
+      );
+  } catch (error) {
+    console.log("Unable to verify refresh Tokens !");
+    return new ApiError(401, "Unable to verify tokens");
+  }
+});
 
 const registerUser = asyncHandler(async (req, res) => {
   const { username, fullName, email, password, gender, phoneNo } = req.body;
@@ -112,31 +158,53 @@ const loginUser = asyncHandler(async (req, res, next) => {
   if (!username && !email) throw new ApiError(402, "Provide username or email");
 
   const user = await User.findOne({
-    $or:[{username},{email}]
+    $or: [{ username }, { email }],
   });
 
   if (!user) throw new ApiError(400, "Invalid userName or email");
   const isValidUser = await user.isCorrectPassword(password);
-  if(!isValidUser) throw new ApiError(403, "Incorrect Password !");
+  if (!isValidUser) throw new ApiError(403, "Incorrect Password !");
 
-  const {accessToken,refreshToken} = await generateAccessTokenAndRefreshToken(user._id);
+  const { accessToken, refreshToken } =
+    await generateAccessTokenAndRefreshToken(user._id);
 
   // we can directly save the token is current user , but to make more secure again take details without token and password
-  const loggedInUser = await User.findById(user._id).select("-password -refreshTiken");
+  const loggedInUser = await User.findById(user._id).select(
+    "-password -refreshTiken"
+  );
 
   const options = {
-    httpOnly : true,    // in production environment it can't be modified by the client side
-    secure : process.env.NODE_ENV === "production"
-  }
+    httpOnly: true, // in production environment it can't be modified by the client side
+    secure: process.env.NODE_ENV === "production",
+  };
 
-  return res.status(200)
-  .cookie("accessToken",accessToken,options)
-  .json(new ApiResponse(
-    200,
-    {user : loggedInUser,accessToken,refreshToken},
-    "login successfully"));
+  return res
+    .status(200)
+    .cookie("accessToken", accessToken, options)
+    .json(
+      new ApiResponse(
+        200,
+        { user: loggedInUser, accessToken, refreshToken },
+        "login successfully"
+      )
+    );
 });
 
-export { registerUser,
-    loginUser
- };
+const logout = asyncHandler(async (req, res) => {
+  await User.findByIdAndUpdate(
+    req.user._id,
+    {$set:{ refreshToken: undefined }},
+    { new: true }
+  )
+
+  const options = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  };
+  return res
+    .status(200)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(new ApiResponse(200, {}, "logout successfully"));
+})
+export { registerUser, loginUser, refreshAccessToken, logout };
