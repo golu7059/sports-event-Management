@@ -49,14 +49,14 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       return new ApiError(401, "Token doesn't match or Expired !");
 
     const { accessToken, refreshToken: newRefreshToken } =
-    await generateAccessTokenAndRefreshToken(user._id);
-    
+      await generateAccessTokenAndRefreshToken(user._id);
+
     const options = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
     };
 
-    res.cookie("refreshToken", newRefreshToken, options); 
+    res.cookie("refreshToken", newRefreshToken, options);
     res.cookie("accessToken", accessToken, options);
 
     return res
@@ -193,9 +193,9 @@ const loginUser = asyncHandler(async (req, res, next) => {
 const logout = asyncHandler(async (req, res) => {
   await User.findByIdAndUpdate(
     req.user._id,
-    {$set:{ refreshToken: undefined }},
+    { $set: { refreshToken: undefined } },
     { new: true }
-  )
+  );
 
   const options = {
     httpOnly: true,
@@ -206,5 +206,177 @@ const logout = asyncHandler(async (req, res) => {
     .clearCookie("accessToken", options)
     .clearCookie("refreshToken", options)
     .json(new ApiResponse(200, {}, "logout successfully"));
-})
-export { registerUser, loginUser, refreshAccessToken, logout };
+});
+
+const getCurrentUser = asyncHandler(async (req, res) => {
+  return res
+    .status(200)
+    .json(new ApiResponse(200, req.user, "current user details "));
+});
+
+const updateCurrentUserDetails = asyncHandler(async (req, res) => {
+  const { fullName, username, email, phoneNo, gender } = req.body;
+
+  const user = await User.findById(req.user?._id).select(
+    "-password -refreshToken"
+  );
+  if (!user) throw new ApiError(400, "User not found");
+
+  if (fullName) user.fullName = fullName;
+  if (username) user.username = username;
+  if (email) user.email = email;
+  if (phoneNo) user.phoneNo = phoneNo;
+  if (gender) user.gender = gender;
+
+  await user.save();
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "User details updated successfully"));
+});
+const changeCurrentUserPassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword)
+    throw new ApiError(400, "Provide current password and new password");
+
+  if (currentPassword.length < 8)
+    throw new ApiError(400, "Password must be at least 8 characters long");
+
+  const user = await User.findById(req.user?._id);
+  if (!user) throw new ApiError(400, "User not found");
+
+  const isValidPassword = await user.isCorrectPassword(currentPassword);
+  if (!isValidPassword) throw new ApiError(400, "Incorrect current password");
+
+  user.password = newPassword;
+  await user.save({ validateBeforeSave: false });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "Password changed successfully"));
+});
+
+const updateUserAvatar = asyncHandler(async (req, res) => {
+  const avatarLocalPath = req.files?.path;
+  if (!avatarLocalPath) throw new ApiError(400, "Please upload avatar");
+
+  const avatar = await uploadOnCloudinary(avatarLocalPath);
+  if (!avatar.url)
+    throw new ApiError(500, "Something went wrong! Can't update avatar");
+
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user?._id,
+      {
+        $set: { avatar: avatar.url },
+      },
+      { new: true }
+    ).select("-password -refreshToken");
+
+    if (!user) throw new ApiError(400, "User not found");
+
+    return res.status(200).json(new ApiResponse(200, user, "Avatar updated"));
+  } catch (error) {
+    deleteFromCloudinary(avatar.public_id);
+    throw new ApiError(500, "Something went wrong! Can't update avatar");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, avatar, "Avatar uploaded successfully"));
+});
+
+const updateUserCoverImage = asyncHandler(async (req, res) => {
+  const coverImageLocalPath = req.files?.path;
+
+  if (!coverImageLocalPath)
+    throw new ApiError(400, "Please upload cover image");
+
+  const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+  if (!coverImage.url)
+    throw new ApiError(500, "Something went wrong! Can't update cover image");
+
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user?._id,
+      { $set: { coverImage: coverImage.url } },
+      { new: true }
+    ).select("-password -refreshToken");
+    if (!user) throw new ApiError(400, "User not found");
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, user, "Cover image updated successfully"));
+  } catch (error) {
+    throw new ApiError(
+      500,
+      error?.message || "Something went wrong! Can't update cover image"
+    );
+  }
+});
+
+const getMatchHistory = asyncHandler(async (req, res) => {
+  // using aggregation pipeline to get match history
+  const matchHistory = await User.aggregate([
+    { $match: { _id: new mongoose.Types.ObjectId(req.user?._id) } },
+    {
+      $lookup: {
+        from: "matches",
+        localField: "matchHistory",
+        foreignField: "_id",
+        as: "matchHistory",
+        pipeline: [
+          {
+            $lookup: {
+              from: "locations",
+              localField: "location",
+              foreignField: "_id",
+              as: "matchLocation",
+              pipeline: [
+                {
+                  $project: {
+                    address: 1,
+                    city: 1,
+                    pincode: 1,
+                    state: 1,
+                  },
+                },
+              ],
+            },
+          },
+          {
+            $addFields: {
+              location: {
+                $first: "$matchLocation",
+              },
+            },
+          },
+        ],
+      },
+    },
+  ]);
+
+  if (!matchHistory) throw new ApiError(402, "User have no match history");
+  return res
+    .status(201)
+    .json(
+      new ApiResponse(
+        200,
+        matchHistory,
+        "user match history is loaded successfully"
+      )
+    );
+});
+
+export { 
+  registerUser, 
+  loginUser, 
+  refreshAccessToken, 
+  logout , 
+  getCurrentUser,
+  generateAccessTokenAndRefreshToken,
+  updateCurrentUserDetails,
+  changeCurrentUserPassword,
+  updateUserAvatar,
+  updateUserCoverImage,
+  getMatchHistory
+};
