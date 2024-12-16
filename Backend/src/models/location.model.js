@@ -20,8 +20,13 @@ const locationSchema = new Schema({
     pincode : {
         type : Number,
         required : true,
-        trim : true
+        validate:{
+            validator: function(pin){
+                return pin.toSting().length === 6;
+            },
+            message : "pin code must be of 6 digits"
+        }
     }
 })  
 
-export default mongoose.model("Location",locationSchema)
+export const Location = mongoose.model("Location",locationSchema)
