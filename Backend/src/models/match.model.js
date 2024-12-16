@@ -17,6 +17,10 @@ const matchSchema = new Schema({
         required : true,
         default : 11
     },
+    team : {
+        type : Schema.Types.ObjectId,
+        ref : "Team",
+    },
     time: {
         type : Date
     },
