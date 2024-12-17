@@ -10,7 +10,7 @@ const teamSchema = new Schema({
         lowercase : true,
         index : true
     },
-    cateogery : {
+    category : {
         type : String,
         required : true
     },
