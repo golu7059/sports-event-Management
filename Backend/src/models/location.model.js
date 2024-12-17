@@ -22,7 +22,7 @@ const locationSchema = new Schema({
         required : true,
         validate:{
             validator: function(pin){
-                return pin.toSting().length === 6;
+                return pin.toString().length === 6;
             },
             message : "pin code must be of 6 digits"
         }
